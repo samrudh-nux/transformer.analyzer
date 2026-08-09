@@ -1,0 +1,6 @@
+{
+  "name": "TRANS-A.AI",
+  "description": "TRANS-A.AI — Rigid-body transform and rotation semantic analyzer for robotics, CV, and SLAM codebases with frame graph visualization.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
