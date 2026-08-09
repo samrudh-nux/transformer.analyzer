@@ -1,10 +1,3 @@
--- ==============================================================================
--- SUPABASE SINGLE SQL MIGRATION FILE
--- Copy and paste this script directly into your Supabase SQL Editor to provision
--- all required tables, JSONB structures, and Row Level Security (RLS) policies.
--- ==============================================================================
-
--- 1. Create 'folders' table for project categories and document groups
 CREATE TABLE IF NOT EXISTS public.folders (
   id TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
