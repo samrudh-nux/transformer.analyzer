@@ -14,7 +14,7 @@ graph, and flags exactly this class of bug — with calibrated confidence
 that distinguishes what it can verify from the code alone versus what
 depends on knowledge it doesn't have.
 
-**[Live Demo](https://transformer-analyzer.vercel.app)** ## NOTE : after new user sign in , you would get mail confrimation link (click on that ) and come back to page you would be on sign up page again enter password and unlock other two features ##
+**[Live Demo](https://transformer-analyzer.vercel.app)** *NOTE : after new user sign in , you would get mail confrimation link (click on that ) and manually need to come back to page you would be on sign up page again enter password and unlock other two features , BYE*
 
 > **Best viewed on desktop.** The code editor and 3D visualization aren't
 > yet optimized for small screens.
