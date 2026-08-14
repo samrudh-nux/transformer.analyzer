@@ -110,6 +110,33 @@ export default function App() {
   const [showRawJson, setShowRawJson] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Helper to purge cached profile and transient analysis data from localStorage to prevent sensitive data leakage
+  const clearUnauthenticatedCache = useCallback(() => {
+    try {
+      localStorage.removeItem('user_profile_latest');
+      localStorage.removeItem('signedUpEmail');
+      localStorage.removeItem('justSignedUp');
+
+      // Purge all keys associated with user profiles, transient sessions, or cached analysis
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (
+          key &&
+          (key.startsWith('user_profile_') ||
+            key.startsWith('transient_') ||
+            key.startsWith('analysis_') ||
+            key.startsWith('vault_'))
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (err) {
+      console.warn('Failed to clear unauthenticated cache from localStorage:', err);
+    }
+  }, []);
+
   // Initialize and listen for Supabase authentication state & profile sync
   useEffect(() => {
     supabase.auth
@@ -117,15 +144,20 @@ export default function App() {
       .then(({ data: { session } }: any) => {
         setSession(session);
         if (session?.user) {
-          setActiveMode('reviewer');
           fetchAndSyncUserProfile(session.user);
+          setActiveMode('reviewer');
         } else {
-          setActiveMode('design_spec');
+          clearUnauthenticatedCache();
           setUserProfile(null);
+          setAnalysisResult(null);
+          setActiveMode('design_spec');
         }
         setAuthLoading(false);
       })
       .catch(() => {
+        clearUnauthenticatedCache();
+        setUserProfile(null);
+        setAnalysisResult(null);
         setAuthLoading(false);
       });
 
@@ -134,11 +166,13 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((_event: string, currentSession: any) => {
       setSession(currentSession);
       if (currentSession?.user) {
-        setActiveMode('reviewer');
         fetchAndSyncUserProfile(currentSession.user);
+        setActiveMode('reviewer');
       } else {
-        setActiveMode('design_spec');
+        clearUnauthenticatedCache();
         setUserProfile(null);
+        setAnalysisResult(null);
+        setActiveMode('design_spec');
       }
       setAuthLoading(false);
     });
@@ -146,11 +180,25 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [fetchAndSyncUserProfile]);
+  }, [fetchAndSyncUserProfile, clearUnauthenticatedCache]);
+
+  // Dedicated cleanup effect whenever session becomes null/unauthenticated
+  useEffect(() => {
+    if (!session) {
+      clearUnauthenticatedCache();
+      setUserProfile(null);
+      setAnalysisResult(null);
+      setErrorMessage(null);
+      setShowRawJson(false);
+    }
+  }, [session, clearUnauthenticatedCache]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
+    setUserProfile(null);
+    setAnalysisResult(null);
+    clearUnauthenticatedCache();
     setActiveMode('design_spec');
   };
 
@@ -327,7 +375,12 @@ export default function App() {
       <main className="flex-1">
         {!session ? (
           <DesignSpecView
-            onEnterWorkspace={() => setActiveMode('reviewer')}
+            onEnterWorkspace={() => {
+              const authCard = document.getElementById('auth-portal-section');
+              if (authCard) {
+                authCard.scrollIntoView({ behavior: 'smooth' });
+              }
+            }}
             userEmail={session?.user?.email || undefined}
             isAuthenticated={!!session}
             onSignOut={handleSignOut}
@@ -613,7 +666,12 @@ export default function App() {
         onClose={() => setIsArticleModalOpen(false)}
         onEnterWorkspace={() => {
           setIsArticleModalOpen(false);
-          setActiveMode('reviewer');
+          if (session) {
+            setActiveMode('reviewer');
+          } else {
+            const authCard = document.getElementById('auth-portal-section');
+            if (authCard) authCard.scrollIntoView({ behavior: 'smooth' });
+          }
         }}
       />
     </div>

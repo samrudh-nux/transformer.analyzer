@@ -37,12 +37,11 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
 
   const handleTabClick = (mode: AppMode) => {
-    if (!isAuthenticated && mode !== 'design_spec') {
-      setActiveMode('design_spec');
-      return;
-    }
-    if (isAuthenticated && mode === 'design_spec') {
-      setActiveMode('reviewer');
+    if (!isAuthenticated) {
+      const authCard = document.getElementById('auth-portal-section');
+      if (authCard) {
+        authCard.scrollIntoView({ behavior: 'smooth' });
+      }
       return;
     }
     setActiveMode(mode);
@@ -53,7 +52,14 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand Title & Icon */}
         <div 
-          onClick={() => setActiveMode(isAuthenticated ? 'reviewer' : 'design_spec')}
+          onClick={() => {
+            if (isAuthenticated) {
+              setActiveMode('reviewer');
+            } else {
+              const authCard = document.getElementById('auth-portal-section');
+              if (authCard) authCard.scrollIntoView({ behavior: 'smooth' });
+            }
+          }}
           className="flex items-center space-x-2.5 cursor-pointer select-none group"
         >
           <Rotate3d className="w-7 h-7 text-indigo-600 group-hover:text-indigo-500 group-hover:rotate-12 group-hover:scale-110 transition-all duration-300 drop-shadow-xs" />
@@ -74,57 +80,50 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Mode Switcher Tabs */}
         <div className="flex items-center bg-zinc-200/70 p-1 rounded-lg border border-zinc-300/60 text-xs font-medium">
-          {!isAuthenticated && (
-            <button
-              onClick={() => handleTabClick('design_spec')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md transition-all ${
-                activeMode === 'design_spec'
-                  ? 'bg-white text-zinc-900 shadow-sm font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <Layout className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Landing & Auth</span>
-            </button>
-          )}
-
           <button
             onClick={() => handleTabClick('reviewer')}
             className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md transition-all relative ${
-              activeMode === 'reviewer'
-                ? 'bg-white text-zinc-900 shadow-sm font-semibold'
-                : 'text-zinc-600 hover:text-zinc-900'
-            } ${!isAuthenticated ? 'opacity-70' : ''}`}
-            title={!isAuthenticated ? 'Sign in required to access Code Reviewer' : ''}
+              isAuthenticated
+                ? activeMode === 'reviewer'
+                  ? 'bg-white text-zinc-900 shadow-sm font-semibold'
+                  : 'text-zinc-600 hover:text-zinc-900'
+                : 'text-zinc-500 hover:text-zinc-700 cursor-pointer'
+            }`}
+            title={isAuthenticated ? 'Code Reviewer' : 'Locked — Sign in or create an account to unlock'}
           >
             <Code2 className="w-3.5 h-3.5 text-indigo-600" />
             <span>Code Reviewer</span>
-            {!isAuthenticated && (
-              <Lock className="w-3 h-3 text-amber-600 ml-0.5" />
-            )}
-            {isAuthenticated && isClean === false && issueCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
-                {issueCount}
-              </span>
-            )}
-            {isAuthenticated && isClean === true && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-1" />
+            {!isAuthenticated ? (
+              <Lock className="w-3 h-3 text-zinc-500 ml-1" />
+            ) : (
+              <>
+                {isClean === false && issueCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                    {issueCount}
+                  </span>
+                )}
+                {isClean === true && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-1" />
+                )}
+              </>
             )}
           </button>
 
           <button
             onClick={() => handleTabClick('project_vault')}
             className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md transition-all relative ${
-              activeMode === 'project_vault'
-                ? 'bg-white text-zinc-900 shadow-sm font-semibold'
-                : 'text-zinc-600 hover:text-zinc-900'
-            } ${!isAuthenticated ? 'opacity-70' : ''}`}
-            title={!isAuthenticated ? 'Sign in required to access Projects & Drive Vault' : ''}
+              isAuthenticated
+                ? activeMode === 'project_vault'
+                  ? 'bg-white text-zinc-900 shadow-sm font-semibold'
+                  : 'text-zinc-600 hover:text-zinc-900'
+                : 'text-zinc-500 hover:text-zinc-700 cursor-pointer'
+            }`}
+            title={isAuthenticated ? 'Projects & Drive Vault' : 'Locked — Sign in or create an account to unlock'}
           >
             <FolderGit2 className="w-3.5 h-3.5 text-indigo-600" />
             <span>Projects & Drive Vault</span>
             {!isAuthenticated && (
-              <Lock className="w-3 h-3 text-amber-600 ml-0.5" />
+              <Lock className="w-3 h-3 text-zinc-500 ml-1" />
             )}
           </button>
         </div>

@@ -33,7 +33,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             Transform Code Input
           </span>
           <span className="text-[11px] text-zinc-400 font-mono">
-            (Python / C++ / SciPy / Eigen / PyTorch)
+            (Python / NumPy / SciPy / PyTorch / ROS2)
           </span>
         </div>
 

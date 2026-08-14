@@ -60,7 +60,7 @@ export const BlogArticleModal: React.FC<BlogArticleModalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
-                  Validated Research
+                  Technical Overview
                 </span>
                 <span className="text-slate-400 text-xs hidden sm:inline">• 5 min read</span>
               </div>
@@ -140,7 +140,7 @@ export const BlogArticleModal: React.FC<BlogArticleModalProps> = ({
               </div>
 
               <div className="flex items-center space-x-2 text-xs font-mono">
-                <span className="text-indigo-600 font-semibold px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-md">TRANS-A.AI Research</span>
+                <span className="text-indigo-600 font-semibold px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-md">TRANS-A.AI Architecture</span>
               </div>
             </div>
           </div>

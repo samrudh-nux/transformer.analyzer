@@ -180,50 +180,62 @@ async function performCodeAnalysis(code: string): Promise<any> {
     };
   }
 
-  const PRIMARY_MODEL = 'gemini-3.6-flash';
+  const CANDIDATE_MODELS = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: PRIMARY_MODEL,
-        contents: code,
-        config: {
-          systemInstruction: SYSTEM_PROMPT_CODE_REVIEW,
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      const rawText = response.text?.trim() || '';
-      let parsedJson = null;
-
+  for (const modelName of CANDIDATE_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        parsedJson = JSON.parse(rawText);
-      } catch {
-        const cleaned = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-        parsedJson = JSON.parse(cleaned);
-      }
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: code,
+          config: {
+            systemInstruction: SYSTEM_PROMPT_CODE_REVIEW,
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        });
 
-      if (parsedJson) {
-        return {
-          ...parsedJson,
-          source: PRIMARY_MODEL,
-        };
-      }
-    } catch (error: any) {
-      const errString = String(error?.message || error);
-      const isQuotaExceeded =
-        errString.includes('429') ||
-        errString.includes('RESOURCE_EXHAUSTED') ||
-        errString.includes('Quota exceeded');
+        const rawText = response.text?.trim() || '';
+        let parsedJson = null;
 
-      if (isQuotaExceeded) {
-        break;
-      }
+        try {
+          parsedJson = JSON.parse(rawText);
+        } catch {
+          const cleaned = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+          parsedJson = JSON.parse(cleaned);
+        }
 
-      console.warn(`Gemini API attempt ${attempt} failed:`, errString);
-      if (attempt === 1) {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (parsedJson) {
+          return {
+            ...parsedJson,
+            source: modelName,
+          };
+        }
+      } catch (error: any) {
+        const errString = String(error?.message || error);
+        const isQuotaExceeded =
+          errString.includes('429') ||
+          errString.includes('RESOURCE_EXHAUSTED') ||
+          errString.includes('Quota exceeded');
+        const isHighDemand =
+          errString.includes('503') ||
+          errString.includes('UNAVAILABLE') ||
+          errString.includes('high demand') ||
+          errString.includes('temporarily unavailable');
+
+        console.warn(`Gemini API (${modelName}) attempt ${attempt} warning:`, isHighDemand ? 'Model temporarily busy' : (isQuotaExceeded ? 'Quota limit reached' : errString));
+
+        if (isQuotaExceeded) {
+          // Break inner loop to try next model or fallback
+          break;
+        }
+
+        if (attempt === 1 && isHighDemand) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        } else {
+          // If attempt 2 or other error, break to next model
+          break;
+        }
       }
     }
   }
@@ -232,13 +244,100 @@ async function performCodeAnalysis(code: string): Promise<any> {
   return {
     ...fallbackResult,
     source: 'local_analyzer',
-    notice: 'Gemini service experiencing temporary high demand. Analyzed by local static analysis engine.',
+    notice: 'Analyzed using the built-in deterministic static analysis engine.',
   };
 }
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
+});
+
+// Proxy external image to Data URL to bypass client-side CORS in PDF generation
+app.get('/api/proxy-image', async (req, res) => {
+  try {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'url query parameter is required.' });
+    }
+
+    let targetUrl = rawUrl;
+
+    // Detect Google Drive URLs and convert to high-res thumbnail/direct preview
+    const driveMatch = rawUrl.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([a-zA-Z0-9_-]+)/);
+    const docsMatch = rawUrl.match(/docs\.google\.com\/(?:document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/);
+    const driveId = driveMatch?.[1] || docsMatch?.[1];
+
+    if (driveId) {
+      targetUrl = `https://lh3.googleusercontent.com/d/${driveId}=w1600`;
+    }
+
+    const response = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      // If Google thumbnail fallback fails, try thumbnail API
+      if (driveId) {
+        const fallbackRes = await fetch(`https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`);
+        if (fallbackRes.ok) {
+          const buffer = await fallbackRes.arrayBuffer();
+          const contentType = fallbackRes.headers.get('content-type') || 'image/jpeg';
+          const base64 = Buffer.from(buffer).toString('base64');
+          return res.json({
+            dataUrl: `data:${contentType};base64,${base64}`,
+            mimeType: contentType,
+            success: true,
+          });
+        }
+      }
+      return res.status(response.status).json({ error: `Failed to fetch image: HTTP ${response.status}` });
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+
+    return res.json({
+      dataUrl: `data:${contentType};base64,${base64}`,
+      mimeType: contentType,
+      success: true,
+    });
+  } catch (err: any) {
+    console.error('Image proxy error:', err);
+    return res.status(500).json({ error: err?.message || 'Could not proxy image.' });
+  }
+});
+
+// Proxy text/code file content for PDF export
+app.get('/api/proxy-file', async (req, res) => {
+  try {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'url query parameter is required.' });
+    }
+
+    const response = await fetch(rawUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Failed to fetch file: HTTP ${response.status}` });
+    }
+
+    const text = await response.text();
+    return res.json({
+      content: text,
+      success: true,
+    });
+  } catch (err: any) {
+    console.error('File proxy error:', err);
+    return res.status(500).json({ error: err?.message || 'Could not proxy file.' });
+  }
 });
 
 // Analyze route

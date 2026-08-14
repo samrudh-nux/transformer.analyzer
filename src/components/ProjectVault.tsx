@@ -28,11 +28,11 @@ import {
   Download,
   FileDown
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { ProjectFolder, ProjectItem, ProjectAttachment, FolderType, AttachmentType, UserProfile } from '../types';
 import { User, Camera } from 'lucide-react';
 // @ts-ignore - JS file import
 import { supabase } from '../supabaseClient';
+import { exportProjectVaultPDF } from '../utils/pdfGenerator';
 
 interface ProjectVaultProps {
   onLoadCodeToReviewer: (code: string) => void;
@@ -124,29 +124,52 @@ print("World coords:", transform_cam_to_world(p_C, R_W_C, t_W_C))`,
     id: 'p-2',
     folderId: 'f-2',
     title: '7-DOF Manipulator Forward Kinematics',
-    language: 'cpp',
-    description: 'Eigen-based forward kinematics parser with DH parameter table and singularity protection.',
-    code: `#include <iostream>
-#include <Eigen/Dense>
+    language: 'python',
+    description: 'NumPy-based forward kinematics parser with DH parameter table and singularity protection.',
+    code: `import numpy as np
 
-using namespace Eigen;
+def get_dh_transform(a, alpha, d, theta):
+    """
+    Computes Denavit-Hartenberg (DH) 4x4 homogeneous transformation matrix.
+    a: link length
+    alpha: link twist
+    d: link offset
+    theta: joint angle
+    """
+    ct, st = np.cos(theta), np.sin(theta)
+    ca, sa = np.cos(alpha), np.sin(alpha)
+    
+    return np.array([
+        [ct, -st * ca,  st * sa, a * ct],
+        [st,  ct * ca, -ct * sa, a * st],
+        [0.0,      sa,       ca,      d],
+        [0.0,     0.0,      0.0,    1.0]
+    ])
 
-Matrix4d get_dh_transform(double a, double alpha, double d, double theta) {
-    Matrix4d T;
-    T << cos(theta), -sin(theta)*cos(alpha),  sin(theta)*sin(alpha), a*cos(theta),
-         sin(theta),  cos(theta)*cos(alpha), -cos(theta)*sin(alpha), a*sin(theta),
-         0,           sin(alpha),             cos(alpha),            d,
-         0,           0,                      0,                     1;
-    return T;
-}
+def forward_kinematics_7dof(joint_angles, dh_params):
+    """
+    Computes end-effector SE(3) pose T_0_7 for a 7-DOF serial manipulator.
+    """
+    T_0_i = np.eye(4)
+    for (a, alpha, d), theta in zip(dh_params, joint_angles):
+        T_i = get_dh_transform(a, alpha, d, theta)
+        T_0_i = np.dot(T_0_i, T_i)
+    return T_0_i
 
-int main() {
-    Matrix4d T_0_7 = Matrix4d::Identity();
-    // Chain multiplication across 7 links
-    std::cout << "End-effector T_0_7:\\n" << T_0_7 << std::endl;
-    return 0;
-}`,
-    tags: ['C++', 'Eigen', 'URDF', 'Forward Kinematics'],
+# Example usage for standard 7-DOF arm configuration
+dh_table = [
+    (0.0, -np.pi/2, 0.333),
+    (0.0,  np.pi/2, 0.0),
+    (0.0,  np.pi/2, 0.316),
+    (0.0, -np.pi/2, 0.0),
+    (0.0, -np.pi/2, 0.384),
+    (0.0,  np.pi/2, 0.0),
+    (0.088,    0.0, 0.107)
+]
+q_test = np.zeros(7)
+T_end_effector = forward_kinematics_7dof(q_test, dh_table)
+print("End-Effector SE(3) Homogeneous Matrix:\\n", np.round(T_end_effector, 4))`,
+    tags: ['Python', 'NumPy', 'Forward Kinematics', 'SE(3)', 'DH-Parameters'],
     attachments: [
       {
         id: 'att-3',
@@ -261,320 +284,16 @@ export const ProjectVault: React.FC<ProjectVaultProps> = ({
     }
   };
 
-// Helper to convert any image URL (including Supabase signed URLs) to base64 Data URL for PDF embedding
-async function getImageDataUrl(
-  url?: string
-): Promise<{ dataUrl: string; format: 'JPEG' | 'PNG'; width: number; height: number } | null> {
-  if (!url) return null;
-
-  if (url.startsWith('data:image')) {
-    const isPng = url.startsWith('data:image/png');
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        resolve({
-          dataUrl: url,
-          format: isPng ? 'PNG' : 'JPEG',
-          width: img.naturalWidth || 400,
-          height: img.naturalHeight || 300,
-        });
-      };
-      img.onerror = () => {
-        resolve({
-          dataUrl: url,
-          format: isPng ? 'PNG' : 'JPEG',
-          width: 400,
-          height: 300,
-        });
-      };
-      img.src = url;
-    });
-  }
-
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        const w = img.naturalWidth || 400;
-        const h = img.naturalHeight || 300;
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          resolve({
-            dataUrl,
-            format: 'JPEG',
-            width: w,
-            height: h,
-          });
-          return;
-        }
-      } catch (e) {
-        console.warn('Canvas conversion failed, trying fetch fallback:', e);
-      }
-      resolve(null);
-    };
-
-    img.onerror = async () => {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const resUrl = reader.result as string;
-          if (resUrl && resUrl.startsWith('data:image')) {
-            const isPng = resUrl.includes('png');
-            resolve({
-              dataUrl: resUrl,
-              format: isPng ? 'PNG' : 'JPEG',
-              width: 400,
-              height: 300,
-            });
-          } else {
-            resolve(null);
-          }
-        };
-        reader.readAsDataURL(blob);
-      } catch (fetchErr) {
-        console.warn('Could not fetch image URL for PDF export:', fetchErr);
-        resolve(null);
-      }
-    };
-
-    img.src = url;
-  });
-}
-
   const [isExportingPDF, setIsExportingPDF] = useState<boolean>(false);
 
-  // Generate and export printable PDF document
+  // Generate and export printable PDF document with real embedded images & files
   const handleExportPDF = async () => {
     if (!activeProject) return;
     setIsExportingPDF(true);
 
     try {
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 15;
-      const contentWidth = pageWidth - margin * 2;
-      let y = margin;
-
-      const checkPageBreak = (neededHeight: number) => {
-        if (y + neededHeight > pageHeight - margin) {
-          doc.addPage();
-          y = margin;
-        }
-      };
-
-      // Header Banner Box
-      doc.setFillColor(24, 24, 27); // Dark zinc-900
-      doc.rect(margin, y, contentWidth, 24, 'F');
-
-      // Title
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      const titleText = activeProject.title || 'Untitled Project';
-      doc.text(titleText, margin + 5, y + 10);
-
-      // Metadata subtitle
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(161, 161, 170);
-      const folderName = folders.find((f) => f.id === activeProject.folderId)?.name || 'General Vault';
-      const metaStr = `Folder: ${folderName}   |   Language: ${(activeProject.language || 'code').toUpperCase()}   |   Exported: ${new Date().toLocaleDateString()}`;
-      doc.text(metaStr, margin + 5, y + 18);
-
-      y += 30;
-
-      // Description
-      if (activeProject.description) {
-        checkPageBreak(18);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(24, 24, 27);
-        doc.text('PROJECT DESCRIPTION', margin, y);
-        y += 5.5;
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(71, 85, 105);
-        const splitDesc = doc.splitTextToSize(activeProject.description, contentWidth);
-        doc.text(splitDesc, margin, y);
-        y += splitDesc.length * 4.5 + 6;
-      }
-
-      // Code Snippet
-      if (activeProject.code) {
-        checkPageBreak(25);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(24, 24, 27);
-        doc.text(`SOURCE CODE (${(activeProject.language || 'CODE').toUpperCase()})`, margin, y);
-        y += 5.5;
-
-        const codeLines = activeProject.code.split('\n');
-        const lineHeight = 4.2;
-
-        // Code Header Banner
-        doc.setFillColor(39, 39, 42);
-        doc.rect(margin, y, contentWidth, 6.5, 'F');
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(228, 228, 231);
-        doc.text(`// ${activeProject.title} (${codeLines.length} lines)`, margin + 4, y + 4.5);
-        y += 6.5;
-
-        doc.setFont('courier', 'normal');
-        doc.setFontSize(7.5);
-
-        for (let i = 0; i < codeLines.length; i++) {
-          checkPageBreak(lineHeight + 1.5);
-
-          if (i % 2 === 0) {
-            doc.setFillColor(248, 250, 252);
-            doc.rect(margin, y, contentWidth, lineHeight + 0.3, 'F');
-          }
-
-          // Line numbers
-          doc.setTextColor(148, 163, 184);
-          doc.text(String(i + 1).padStart(3, ' '), margin + 2, y + 3.2);
-
-          // Code text
-          doc.setTextColor(15, 23, 42);
-          const rawLine = codeLines[i].replace(/\t/g, '  ');
-          const truncatedLine = rawLine.length > 95 ? rawLine.substring(0, 95) + '...' : rawLine;
-          doc.text(truncatedLine, margin + 11, y + 3.2);
-
-          y += lineHeight;
-        }
-
-        y += 8;
-      }
-
-      // Attachments & Google Drive Assets
-      if (activeProject.attachments && activeProject.attachments.length > 0) {
-        checkPageBreak(20);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(24, 24, 27);
-        doc.text(`ATTACHED FILES & STORED ASSETS (${activeProject.attachments.length})`, margin, y);
-        y += 6;
-
-        for (const att of activeProject.attachments) {
-          const isImg =
-            att.type === 'image' ||
-            att.mimeType?.startsWith('image/') ||
-            /\.(png|jpe?g|webp|gif|svg)$/i.test(att.name);
-
-          const imgUrl = att.dataUrl || att.url;
-          const imgInfo = isImg && imgUrl ? await getImageDataUrl(imgUrl) : null;
-
-          const cardHeight = att.storagePath || att.url ? 17 : 13;
-          checkPageBreak(cardHeight + 4);
-
-          // Card Background & Border
-          doc.setFillColor(248, 250, 252);
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(margin, y, contentWidth, cardHeight, 1.5, 1.5, 'FD');
-
-          // Title & Badge
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8.5);
-          doc.setTextColor(15, 23, 42);
-          doc.text(`• ${att.name}`, margin + 3.5, y + 4.8);
-
-          // Source Tag
-          const badgeText = att.storagePath
-            ? '[SUPABASE STORAGE]'
-            : att.type === 'drive'
-            ? '[GOOGLE DRIVE]'
-            : '[FILE ATTACHMENT]';
-          doc.setFont('courier', 'bold');
-          doc.setFontSize(7);
-          doc.setTextColor(att.storagePath ? 16 : 79, att.storagePath ? 185 : 70, att.storagePath ? 129 : 229);
-          doc.text(badgeText, pageWidth - margin - 3.5, y + 4.8, { align: 'right' });
-
-          // Specs
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(100, 116, 139);
-          const fileInfo = `Type: ${(att.mimeType || att.type).toUpperCase()}   |   Size: ${att.size || 'N/A'}   |   Uploaded: ${att.uploadedAt}`;
-          doc.text(fileInfo, margin + 3.5, y + 9.5);
-
-          // Storage location or URL link
-          if (att.storagePath) {
-            doc.setFont('courier', 'normal');
-            doc.setFontSize(7);
-            doc.setTextColor(71, 85, 105);
-            doc.text(`Storage Path: app-files/${att.storagePath}`, margin + 3.5, y + 14);
-          } else if (att.url) {
-            doc.setFont('courier', 'normal');
-            doc.setFontSize(7);
-            doc.setTextColor(71, 85, 105);
-            const truncUrl = att.url.length > 80 ? att.url.substring(0, 80) + '...' : att.url;
-            doc.text(`URL: ${truncUrl}`, margin + 3.5, y + 14);
-          }
-
-          y += cardHeight + 3;
-
-          // Render Real Image Preview if available
-          if (imgInfo) {
-            let displayW = 85;
-            let displayH = (imgInfo.height / imgInfo.width) * displayW;
-            if (displayH > 55) {
-              displayH = 55;
-              displayW = (imgInfo.width / imgInfo.height) * displayH;
-            }
-            if (isNaN(displayH) || displayH <= 0) {
-              displayW = 60;
-              displayH = 45;
-            }
-
-            checkPageBreak(displayH + 8);
-
-            doc.setFillColor(255, 255, 255);
-            doc.setDrawColor(203, 213, 225);
-            doc.roundedRect(margin + 3, y, displayW + 4, displayH + 4, 1, 1, 'FD');
-
-            try {
-              doc.addImage(imgInfo.dataUrl, imgInfo.format, margin + 5, y + 2, displayW, displayH);
-              y += displayH + 8;
-            } catch (err) {
-              console.warn('Failed to embed image in PDF:', err);
-            }
-          }
-        }
-      }
-
-      // Footer
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(148, 163, 184);
-        doc.text(
-          `Page ${i} of ${totalPages}  •  Project Vault Export  •  Supabase Storage`,
-          margin,
-          pageHeight - 7
-        );
-      }
-
-      const safeTitle = activeProject.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Project';
-      doc.save(`${safeTitle}_Document.pdf`);
-      setSupabaseSaveNotice(`✓ Downloaded printable PDF for "${activeProject.title}"!`);
+      await exportProjectVaultPDF(activeProject, folders, userProfile);
+      setSupabaseSaveNotice(`✓ Generated & downloaded publication-grade PDF for "${activeProject.title}"!`);
     } catch (pdfErr: any) {
       console.error('PDF Generation Error:', pdfErr);
       setSupabaseSaveNotice(`PDF Export Error: ${pdfErr?.message || 'Could not build PDF'}`);
@@ -1348,17 +1067,17 @@ async function getImageDataUrl(
                   </span>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={handleExportPDF}
                     disabled={isExportingPDF}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-mono font-semibold rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-2xs transition-all active:scale-[0.98]"
+                    className="inline-flex items-center justify-center space-x-1.5 h-8 px-3 text-xs font-mono font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-2xs transition-all active:scale-[0.98] whitespace-nowrap"
                     title="Export printable PDF report with code, notes and attached files"
                   >
                     {isExportingPDF ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white shrink-0" />
                     ) : (
-                      <FileDown className="w-3.5 h-3.5 text-white" />
+                      <FileDown className="w-3.5 h-3.5 text-white shrink-0" />
                     )}
                     <span>Export PDF Report</span>
                   </button>
@@ -1366,29 +1085,29 @@ async function getImageDataUrl(
                   <button
                     onClick={handleExplicitSaveToSupabase}
                     disabled={isSavingSupabase}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-mono font-semibold rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-2xs transition-all active:scale-[0.98]"
+                    className="inline-flex items-center justify-center space-x-1.5 h-8 px-3 text-xs font-mono font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-2xs transition-all active:scale-[0.98] whitespace-nowrap"
                     title="Explicitly save code, metadata, and attachments to Supabase table 'projects'"
                   >
                     {isSavingSupabase ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-white shrink-0" />
                     ) : (
-                      <Database className="w-3.5 h-3.5 text-white" />
+                      <Database className="w-3.5 h-3.5 text-white shrink-0" />
                     )}
                     <span>Save to Vault</span>
                   </button>
 
                   <button
                     onClick={() => onLoadCodeToReviewer(activeProject.code)}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-mono font-semibold rounded-md bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs transition-all active:scale-[0.98]"
+                    className="inline-flex items-center justify-center space-x-1.5 h-8 px-3 text-xs font-mono font-semibold rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs transition-all active:scale-[0.98] whitespace-nowrap"
                     title="Load code directly into Code Reviewer workspace"
                   >
-                    <Play className="w-3.5 h-3.5 text-white fill-current" />
+                    <Play className="w-3.5 h-3.5 text-white fill-current shrink-0" />
                     <span>Run in Reviewer</span>
                   </button>
 
                   <button
                     onClick={() => handleDeleteProject(activeProject.id)}
-                    className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition-colors"
+                    className="inline-flex items-center justify-center h-8 w-8 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 border border-zinc-200 transition-colors shrink-0"
                     title="Delete project"
                   >
                     <Trash2 className="w-4 h-4" />
